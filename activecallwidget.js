@@ -1,19 +1,36 @@
 /**
- * Active Calls Widget — pure JS version
- * ---------------------------------------
- * Include this script and it will inject the full widget (markup + styles)
- * into a target container on your page.
+ * Active Calls Widget — pure JS version (v2)
+ * ---------------------------------------------
+ * Changes from v1:
+ *   - No longer falls back to <body>. If the target container isn't found,
+ *     it logs a warning instead of injecting in the wrong place.
+ *   - Custom CSS injection is now OFF by default, since injecting this into
+ *     an existing portal page (which already has its own styles for
+ *     .active-panel-home, .table-container, etc.) causes style conflicts.
+ *     Turn it on only if you're using this on a page with no existing styles.
+ *   - Default mount target changed to '.home-content.span' to match the
+ *     portal's real dashboard container (confirm this class in DevTools —
+ *     it can vary by portal version).
  *
- * USAGE:
+ * USAGE ON THE LIVE PORTAL (console / injection):
+ *   1. Load the script (paste it in DevTools console, or inject via a
+ *      browser extension / userscript).
+ *   2. Run: ActiveCallsWidget.mount('.home-content.span');
+ *   3. Run: ActiveCallsWidget.startPolling('/api/active-calls', 5000);
+ *      (swap the endpoint for whatever the real data source is)
+ *
+ * USAGE ON YOUR OWN SITE:
  *   <div id="active-calls-mount"></div>
  *   <script src="active-calls-widget.js"></script>
- *
- * By default it mounts into #active-calls-mount. If that element doesn't
- * exist, it appends to <body>. You can also call:
- *   ActiveCallsWidget.mount('#some-other-selector');
+ *   <script>
+ *     ActiveCallsWidget.useDefaultStyles(); // opt-in, only if no existing CSS
+ *     ActiveCallsWidget.mount(); // defaults to #active-calls-mount
+ *   </script>
  */
 
 (function () {
+  const DEFAULT_MOUNT_SELECTOR = '.home-content.span';
+
   const CSS = `
     .active-panel-home {
       font-family: Arial, Helvetica, "Nimbus Sans L", "Liberation Sans", FreeSans, sans-serif;
@@ -70,7 +87,7 @@
   `;
 
   const HTML = `
-    <div class="active-panel-home rounded show">
+    <div class="active-panel-home rounded show" id="acw-injected-panel">
       <h6>Active Calls</h6>
       <div id="omp-active-body">
         <div class="table-container scrollable-small">
@@ -94,7 +111,7 @@
     </div>
   `;
 
-  function injectStyles() {
+  function useDefaultStyles() {
     if (document.getElementById('active-calls-widget-styles')) return;
     const style = document.createElement('style');
     style.id = 'active-calls-widget-styles';
@@ -103,15 +120,39 @@
   }
 
   function mount(selector) {
-    injectStyles();
-    const target = document.querySelector(selector || '#active-calls-mount') || document.body;
+    const target = document.querySelector(selector || DEFAULT_MOUNT_SELECTOR);
+
+    if (!target) {
+      console.warn(
+        `ActiveCallsWidget: could not find container "${selector || DEFAULT_MOUNT_SELECTOR}". ` +
+        `Nothing was mounted. Inspect the page and pass the correct selector, ` +
+        `e.g. ActiveCallsWidget.mount('.your-real-container')`
+      );
+      return false;
+    }
+
+    // Avoid mounting twice if called more than once
+    if (document.getElementById('acw-injected-panel')) {
+      console.warn('ActiveCallsWidget: already mounted, skipping.');
+      return false;
+    }
+
     target.insertAdjacentHTML('beforeend', HTML);
+    return true;
+  }
+
+  function unmount() {
+    const el = document.getElementById('acw-injected-panel');
+    if (el) el.remove();
   }
 
   function render(calls) {
     const tbody = document.getElementById('calls_table_body');
     const emptyState = document.getElementById('calls_empty_state');
-    if (!tbody || !emptyState) return; // widget not mounted yet
+    if (!tbody || !emptyState) {
+      console.warn('ActiveCallsWidget: widget not mounted yet, call mount() first.');
+      return;
+    }
 
     tbody.innerHTML = '';
 
@@ -154,26 +195,35 @@
     return setInterval(() => fetchAndRender(endpoint), intervalMs);
   }
 
-  // Auto-mount on load
-  document.addEventListener('DOMContentLoaded', () => {
-    mount();
-  });
+  // NOTE: no auto-mount on DOMContentLoaded anymore. Call
+  // ActiveCallsWidget.mount(...) manually so you control exactly where
+  // and when it gets inserted — important when injecting into a page
+  // you don't own.
 
-  // Public API
-  window.ActiveCallsWidget = { mount, render, startPolling };
+  window.ActiveCallsWidget = {
+    mount,
+    unmount,
+    render,
+    startPolling,
+    useDefaultStyles,
+  };
 })();
 
 /**
- * EXAMPLE USAGE (after the script loads):
+ * QUICK START ON THE LIVE PORTAL:
  *
- * // Manually mount into a specific element:
- * ActiveCallsWidget.mount('#my-container');
+ * // 1. Paste this whole file into the DevTools console (or inject it).
+ * // 2. Find the real dashboard container in the Elements panel, then:
+ * ActiveCallsWidget.mount('.home-content.span');
  *
- * // Render sample data:
+ * // 3. Test with sample data:
  * ActiveCallsWidget.render([
  *   { from: '555-1234', dialed: '555-5678', to: 'John Smith', duration: '00:42' }
  * ]);
  *
- * // Poll a real API every 5 seconds:
+ * // 4. Or start polling a real endpoint:
  * ActiveCallsWidget.startPolling('/api/active-calls', 5000);
+ *
+ * // To remove it:
+ * ActiveCallsWidget.unmount();
  */
